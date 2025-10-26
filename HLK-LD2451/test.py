@@ -1,7 +1,7 @@
 import serial
 import time
 
-PORT = "/dev/ttyUSB1"
+PORT = "/dev/ttyUSB0"
 BAUD = 115200
 
 FRAME_HEADER = b"\xF4\xF3\xF2\xF1"

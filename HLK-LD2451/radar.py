@@ -1,14 +1,18 @@
 import serial
 import struct
 import time
+from colorama import Fore, Style, init
 
 # === Radar serial configuration ===
-PORT = "/dev/ttyUSB1"
+PORT = "/dev/ttyUSB0"
 BAUD = 115200
 
 # === Frame markers ===
 FRAME_HEADER = b"\xF4\xF3\xF2\xF1"
 FRAME_TAIL   = b"\xF8\xF7\xF6\xF5"
+END_CONFIG   = bytes.fromhex("FD FC FB FA 02 00 FE 00 04 03 02 01")
+
+init(autoreset=True) # reset colors
 
 def find_frame_start(buffer):
     """Find start index of frame header in buffer."""
@@ -54,10 +58,22 @@ def parse_target_data(frame_data):
         "alarm": alarm,
         "targets": targets
     }
+    
+def send_command(ser, cmd, label="CMD"):
+    ser.write(cmd)
+    time.sleep(0.1)
+    response = ser.read_all()
+    print(f"{label} -> {response.hex(' ')}")
+    return response
 
 def read_radar(port):
     """Continuously read frames and print target data."""
     buffer = bytearray()
+    
+    ser.reset_input_buffer()
+    buffer.clear()
+    
+    send_command(ser, END_CONFIG, "End Config (start measuring)")
 
     while True:
         data = port.read(128)
@@ -87,23 +103,30 @@ def read_radar(port):
 
         frame = buffer[start_idx:start_idx + full_len]
         if not frame.endswith(FRAME_TAIL):
-            # resync if corrupted
+            print(Fore.RED + "[WARN] Invalid frame tail, resyncing...")
             buffer = buffer[start_idx + 1:]
             continue
 
-        # extract inner data
         inner_data = frame[6:-4]
-        result = parse_target_data(inner_data)
-        if result and result["targets"]:
-            print(f"Successfully read Target data (Length: {len(frame)} bytes)")
-            t1 = result["targets"][0]
-            print(f"Target 1 Angle: {t1['angle']} deg")
-            print(f"Target 1 Distance: {t1['distance']} m")
-            print(f"Target 1 Speed: {t1['speed']} km/h")
-            print(f"Target 1 SNR: {t1['snr']}")
-            print()
+        print(Fore.CYAN + f"[DEBUG] Frame length: {frame_length}, Data: {inner_data.hex(' ')}")
 
-        # remove processed frame
+        if frame_length < 2 or len(inner_data) < 2:
+            print(Fore.YELLOW + "[INFO] Empty or status frame received (no targets).")
+            buffer = buffer[start_idx + full_len:]
+            continue
+
+        result = parse_target_data(inner_data)
+
+        if result and result["targets"]:
+            t1 = result["targets"][0]
+            print(Fore.GREEN + f"\n✅ Successfully read Target data (Length: {len(frame)} bytes)")
+            print(Fore.WHITE + f"Target 1 Angle: {t1['angle']} deg")
+            print(Fore.WHITE + f"Target 1 Distance: {t1['distance']} m")
+            print(Fore.WHITE + f"Target 1 Speed: {t1['speed']} km/h ({t1['direction']})")
+            print(Fore.WHITE + f"Target 1 SNR: {t1['snr']}\n")
+        else:
+            print(Fore.YELLOW + "[INFO] Frame parsed but contained no valid targets.")
+
         buffer = buffer[start_idx + full_len:]
 
 
