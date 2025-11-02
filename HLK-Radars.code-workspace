@@ -3,5 +3,8 @@
 		{
 			"path": "."
 		}
-	]
+	],
+	"settings": {
+		"DockerRun.DisableAutoGenerateConfig": true
+	}
 }

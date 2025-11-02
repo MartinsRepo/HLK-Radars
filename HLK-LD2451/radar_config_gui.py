@@ -625,20 +625,29 @@ def read_sensitivity_params():
     send_command(cmd)
     log("📖 Reading sensitivity parameters")
 
-# === UI ===
-ui.label('🧭 HLK-LD2451 Radar Configuration Tool').classes('text-xl font-bold mb-4')
+# === UI with Grid Layout ===
+ui.label('🧭 HLK-LD2451 Radar Configuration Tool').classes('text-xl font-bold mb-6')
 
-# Configuration status display at the top
-with ui.row().classes('w-full justify-between items-start mb-4'):
-    # Left side - connection controls
-    with ui.column().classes('flex-1'):
-        with ui.row():
-            port_field = ui.input('Serial Port', value=PORT).classes('w-48')
-            baud_field = ui.input('Baudrate', value=str(BAUD)).classes('w-32')
+# Main Grid Layout: 2x2 structure
+# Top Row: Connection Controls | Configuration Display  
+# Bottom Row: Live Radar Data | Debug Log
+with ui.grid(columns='1fr 1fr').classes('w-full gap-6'):
+    
+    # Grid Cell 1: Connection & Control Panel
+    with ui.card().classes('p-4'):
+        ui.label('🔌 Connection & Controls').classes('text-lg font-bold mb-3')
+        
+        # Connection inputs in sub-grid
+        with ui.grid(columns='2fr 1fr 1fr 1fr').classes('w-full gap-2 mb-4'):
+            port_field = ui.input('Serial Port', value=PORT)
+            baud_field = ui.input('Baud', value=str(BAUD))
             ui.button('Connect', on_click=connect_serial, color='green')
             ui.button('Disconnect', on_click=disconnect_serial, color='red')
         
-        with ui.row().classes('mt-2'):
+        # Action buttons in 2x2 grid
+        ui.label('⚡ Quick Actions').classes('text-sm font-semibold mt-4 mb-2')
+        with ui.grid(columns='1fr 1fr').classes('w-full gap-2'):
+            
             def ensure_data_mode():
                 """Send end config command to ensure radar is in data output mode"""
                 if not ser or not ser.is_open:
@@ -648,7 +657,7 @@ with ui.row().classes('w-full justify-between items-start mb-4'):
                 send_command(end_config_cmd)
                 log("📡 Sent END CONFIG - radar should now output data")
             
-            ui.button('📡 Enable Data Mode', on_click=ensure_data_mode, color='blue')
+            ui.button('📡 Data Mode', on_click=ensure_data_mode, color='blue')
             
             def quick_config_and_start():
                 """Configure radar with basic settings and start data mode"""
@@ -675,7 +684,7 @@ with ui.row().classes('w-full justify-between items-start mb-4'):
                 
                 log("✅ Quick configuration complete - radar should now detect targets")
             
-            ui.button('⚡ Quick Config + Data', on_click=quick_config_and_start, color='orange')
+            ui.button('⚡ Quick Config', on_click=quick_config_and_start, color='orange')
             
             def simple_config_test():
                 """Use the exact working sequence from Test SNR functions"""
@@ -710,93 +719,63 @@ with ui.row().classes('w-full justify-between items-start mb-4'):
                 ui.timer(1.0, lambda: log("✅ High sensitivity set - try moving your hand slowly in front of radar"), once=True)
                 
             ui.button('🔥 Max Sensitivity', on_click=test_high_sensitivity, color='red')
-            ui.label('← Move hand slowly after clicking').classes('text-sm text-orange-600')
+        
+        ui.label('💡 Move hand slowly after clicking').classes('text-xs text-orange-600 mt-2')
+        
+        # Manual command input section
+        ui.label('🖥️ Manual Commands').classes('text-sm font-semibold mt-4 mb-2')
+        with ui.row().classes('w-full gap-2'):
+            cmd_field = ui.input('Command (Hex)', placeholder='FD FC FB FA 04 00 FE 01 00 00 04 03 02 01').classes('flex-1')
+            ui.button('Send', on_click=lambda: send_command(cmd_field.value)).props('icon=send')
     
-    # Middle - compact configuration and measurement display
-    with ui.column().classes('flex-1 max-w-[400px]'):
-        # Configuration parameters (compact)
-        with ui.card().classes('p-2 bg-green-50 border border-green-200 mb-3'):
-            ui.label('⚙️ Current Config').classes('text-sm font-semibold mb-1 text-green-800')
-            
-            # Compact configuration display
-            with ui.column().classes('gap-0'):
-                range_display = ui.label(f'📏 Range: {current_config["max_range"]}m').classes('text-xs font-mono')
-                speed_display = ui.label(f'🚗 Speed: {current_config["min_speed"]} km/h').classes('text-xs font-mono')
-                delay_display = ui.label(f'⏱️ Delay: {current_config["delay_time"]}s').classes('text-xs font-mono')
-                snr_display = ui.label(f'📡 SNR: {current_config["snr_level"]}').classes('text-xs font-mono font-bold text-green-700')
-            
+    # Grid Cell 2: Configuration Status Display
+    with ui.card().classes('p-4'):
+        ui.label('⚙️ Configuration Status').classes('text-lg font-bold mb-3')
         
-        # Live radar targets display (expanded)
-        with ui.card().classes('p-3 bg-blue-50 border border-blue-200 flex-1'):
-            ui.label('🎯 Live Radar Targets').classes('text-lg font-semibold text-blue-800 mb-2')
-            
-            # Status indicators
-            with ui.row().classes('gap-4 mb-2'):
-                target_count_display = ui.label('📊 Active Targets: 0').classes('text-sm font-mono font-bold')
-                radar_stats_display = ui.label('📈 Frames: 0 | Empty: 0 | With Targets: 0').classes('text-sm font-mono text-gray-600')
-            
-            # Target data display (bigger)
-            target_list_display = ui.html('', sanitize=False).classes('text-sm font-mono max-h-48 overflow-y-auto bg-white p-2 rounded border')
-            
-            
-            # Live data controls (prominent)
-            with ui.row().classes('mt-3 gap-2 justify-center'):
-                ui.button('📡 Start Live Data', 
-                         on_click=lambda: start_radar_reader(), 
-                         color='blue').classes('px-4 py-2')
-                ui.button('⏹️ Stop Live Data', 
-                         on_click=lambda: stop_radar_reader(), 
-                         color='orange').classes('px-4 py-2')
-            
-            # Status display (compact)
-            with ui.row().classes('mt-2 items-center justify-center gap-2'):
-                status_display = ui.label(current_config["config_status"]).classes('text-xs text-center')
-                config_icon = ui.icon('settings', size='sm').classes('text-green-600')        # Motion detection tips
-        ui.separator().classes('my-2')
-        with ui.column().classes('gap-1'):
-            ui.label('🎯 Target Detection Tips').classes('text-xs font-semibold text-blue-800')
-            ui.html('''
-            <div style="font-size: 10px; color: #666;">
-                <div>✋ <strong>Hand movement:</strong> 0.5-2m distance, slow wave</div>
-                <div>🚶 <strong>Walking:</strong> Cross the radar's field of view</div>
-                <div>📏 <strong>Range:</strong> HLK-LD2451 works best 0.2-12m</div>
-                <div>⚡ <strong>Movement speed:</strong> 0.1-10 m/s detectable</div>
-            </div>''', sanitize=False).classes('text-xs')
+        # Configuration parameters in a neat grid
+        with ui.grid(columns='1fr 1fr').classes('gap-3 mb-4'):
+            range_display = ui.label(f'📏 Range: {current_config["max_range"]}m').classes('text-sm font-mono p-2 bg-green-50 rounded')
+            speed_display = ui.label(f'🚗 Speed: {current_config["min_speed"]} km/h').classes('text-sm font-mono p-2 bg-green-50 rounded')
+            delay_display = ui.label(f'⏱️ Delay: {current_config["delay_time"]}s').classes('text-sm font-mono p-2 bg-green-50 rounded')
+            snr_display = ui.label(f'📡 SNR: {current_config["snr_level"]}').classes('text-sm font-mono font-bold p-2 bg-green-50 rounded')
         
-        updated_display = ui.label(f'Last updated: {current_config["last_updated"]}').classes('text-xs text-gray-600')
-
-# Manual command section
-
-with ui.row().classes('mt-4'):
-    cmd_field = ui.input('Command (Hex)', placeholder='FD FC FB FA 04 00 FE 01 00 00 04 03 02 01').classes('w-[500px]')
-    ui.button('Send', on_click=lambda: send_command(cmd_field.value)).props('icon=send')
-
-# Log window positioned as per screenshot
-with ui.row().classes('w-full gap-4 mt-4'):
-    # Left side - Live Debug Log (in the black rectangle area from screenshot)
-    with ui.column().classes('w-1/2'):
-        ui.label('📝 Live Debug Log').classes('text-lg font-bold mb-2')
-        with ui.column().classes('w-full h-[300px] overflow-y-auto bg-black text-white rounded p-3 font-mono'):
+        status_display = ui.label(current_config["config_status"]).classes('text-sm text-center p-2 bg-blue-50 rounded')
+        updated_display = ui.label(f'Last updated: {current_config["last_updated"]}').classes('text-xs text-gray-600 text-center mt-2')
+    
+    # Grid Cell 3: Live Radar Data
+    with ui.card().classes('p-4 bg-blue-50'):
+        ui.label('🎯 Live Radar Targets').classes('text-lg font-bold text-blue-800 mb-3')
+        
+        # Status indicators in grid
+        with ui.grid(columns='1fr 1fr').classes('gap-2 mb-4'):
+            target_count_display = ui.label('📊 Active Targets: 0').classes('text-sm font-mono font-bold')
+            radar_stats_display = ui.label('📈 Frames: 0').classes('text-sm font-mono text-gray-600')
+        
+        # Target data display - full width minus 10px
+        target_list_display = ui.html('', sanitize=False).classes('text-sm font-mono h-40 overflow-y-auto bg-white p-3 rounded border').style('width: calc(100% - 10px);')
+        
+        # Live data controls in grid
+        with ui.grid(columns='1fr 1fr').classes('gap-2 mt-4'):
+            ui.button('📡 Start Live Data', on_click=lambda: start_radar_reader(), color='blue')
+            ui.button('⏹️ Stop Live Data', on_click=lambda: stop_radar_reader(), color='orange')
+    
+    # Grid Cell 4: Debug Log & Tips
+    with ui.card().classes('p-4'):
+        ui.label('📝 Live Debug Log').classes('text-lg font-bold mb-3')
+        
+        # Debug log - full width minus 10px
+        with ui.column().classes('h-48 overflow-y-auto bg-black text-white rounded p-3 font-mono mb-4').style('width: calc(100% - 10px);'):
             log_output = ui.label('--- Radar Configuration Log ---').classes('text-sm whitespace-pre')
-    
-    # Right side - Configuration Information
-    with ui.column().classes('w-1/2'):
-        ui.label('ℹ️ Configuration Information').classes('text-lg font-bold mb-2')
-        with ui.card().classes('p-4 h-[300px] overflow-y-auto bg-gray-50'):
-            ui.markdown('''
-            **Quick Actions:**
-            - Use "🔥 Max Sensitivity" button at the top for best target detection
-            - Use "📡 Start Live Data" to begin monitoring
-            - Watch the debug log (left) for real-time information
-            
-            **Target Detection Tips:**
-            - Move hand slowly 0.5-2m in front of radar
-            - Try walking across radar's field of view  
-            - Radar detects movement, not static objects
-            
-            **Debug Information:**
-            - Frame reception status • Target parsing details • Configuration responses • Error troubleshooting
-            ''')
+        
+        # Detection tips
+        ui.label('💡 Detection Tips').classes('text-sm font-bold text-blue-800 mb-2')
+        ui.html('''
+        <div style="font-size: 11px; color: #666;">
+            <div>✋ <strong>Hand:</strong> 0.5-2m, slow wave</div>
+            <div>🚶 <strong>Walking:</strong> Cross field of view</div>
+            <div>📏 <strong>Range:</strong> 0.2-12m optimal</div>
+            <div>⚡ <strong>Speed:</strong> 0.1-10 m/s detectable</div>
+        </div>''', sanitize=False)
 
 # Configuration tabs (full width below)
 ui.separator().classes('mt-4')
