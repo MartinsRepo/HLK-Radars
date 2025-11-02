@@ -1,51 +1,106 @@
+#!/usr/bin/env python3
+"""
+HLK-LD2451 Radar Configuration GUI
+==================================
+
+A comprehensive NiceGUI-based web interface for configuring and monitoring
+the HLK-LD2451 radar sensor module.
+
+Features:
+- Real-time radar data visualization
+- Serial communication management
+- Configuration parameter adjustment
+- Live target detection and tracking
+- Debug logging and monitoring
+- Grid-based responsive layout
+
+Hardware Requirements:
+- HLK-LD2451 radar module
+- USB-to-Serial adapter (typically /dev/ttyUSB0)
+- 115200 baud rate communication
+
+Usage:
+    python radar_config_gui.py
+    
+Then navigate to http://localhost:8080 in your web browser.
+
+Author: HLK-Radars Project
+Date: November 2025
+License: Open Source
+"""
+
 from nicegui import ui
 import serial
 import threading
 import time
 import struct
 
-# Defaults
-PORT = "/dev/ttyUSB0"
-BAUD = 115200
+# === Serial Communication Defaults ===
+PORT = "/dev/ttyUSB0"  # Default USB-to-Serial device on Linux
+BAUD = 115200          # Standard baud rate for HLK-LD2451
 
-# === Frame markers for live data ===
-FRAME_HEADER = b"\xF4\xF3\xF2\xF1"
-FRAME_TAIL   = b"\xF8\xF7\xF6\xF5"
+# === HLK-LD2451 Protocol Frame Markers ===
+# These byte sequences mark the beginning and end of data frames
+FRAME_HEADER = b"\xF4\xF3\xF2\xF1"  # Frame start marker
+FRAME_TAIL   = b"\xF8\xF7\xF6\xF5"  # Frame end marker
 
-# Shared state
-ser = None
-log_lines = []
-latest_targets = []  # Live radar target data
-radar_reader_active = False
-log_output = None  # Log display widget
+# === Global Application State ===
+ser = None                    # Serial connection object
+log_lines = []               # Debug log message buffer
+latest_targets = []          # Current radar target detection data
+radar_reader_active = False  # Flag to control radar data reading thread
+log_output = None           # Reference to GUI log display widget
+
+# === Radar Statistics Tracking ===
 radar_stats = {
-    "frames_received": 0,
-    "empty_frames": 0,
-    "target_frames": 0,
-    "bytes_received": 0
+    "frames_received": 0,    # Total frames processed
+    "empty_frames": 0,       # Frames with no targets detected
+    "target_frames": 0,      # Frames containing target data
+    "bytes_received": 0      # Total bytes read from radar
 }
 
-# Current configuration state
+# === Radar Configuration State ===
+# Tracks current radar parameter settings and status
 current_config = {
-    "max_range": 20,
-    "min_speed": 1,
-    "delay_time": 2,
-    "snr_level": 4,
-    "last_updated": "Not configured yet",
-    "config_status": "Ready to configure"
+    "max_range": 20,                        # Maximum detection range in meters (0-20m)
+    "min_speed": 1,                         # Minimum detectable speed in km/h
+    "delay_time": 2,                        # Detection delay time in seconds
+    "snr_level": 8,                         # Signal-to-noise ratio sensitivity (1-10)
+    "config_status": "⚪ Not configured",   # Current configuration status indicator
+    "last_updated": "Never"                 # Timestamp of last configuration change
 }
 
 def log(msg):
-    """Append message to log window"""
+    """
+    Append message to debug log window with auto-scroll.
+    
+    This function manages the debug log display, automatically limiting
+    the buffer size and scrolling to show recent messages.
+    
+    Args:
+        msg (str): The message to log (supports emojis and formatting)
+        
+    Note:
+        - Maintains a rolling buffer of 200 messages
+        - Displays only the last 30 messages in the GUI
+        - Thread-safe: handles calls from background threads gracefully
+        - Auto-scrolls to bottom for newest messages
+    """
     log_lines.append(msg)
+    
+    # Maintain rolling buffer to prevent memory buildup
     if len(log_lines) > 200:
         del log_lines[0]
-    # Only update UI if we're in the main thread context
+    
+    # Update UI only if we're in the main thread context
     try:
+        # Show last 30 messages in the log window
         log_output.text = "\n".join(log_lines[-30:])
+        # Auto-scroll to bottom to show newest messages
         ui.run_javascript("document.querySelector('.overflow-y-auto').scrollTop = 999999;")
     except RuntimeError:
         # Skip UI update if called from background thread
+        # (This is normal during radar data reading)
         pass
 
 def find_frame_start(buffer):
@@ -208,6 +263,16 @@ def radar_data_reader():
         log_lines.append(f"⏹️ Radar data reader stopped. Processed {frames_processed} frames, {bytes_received} bytes")
 
 def connect_serial():
+    """
+    Establish serial connection to the HLK-LD2451 radar module.
+    
+    Uses the port and baud rate specified in the GUI input fields.
+    Updates the global serial connection object and logs the result.
+    
+    Typical settings:
+        - Port: /dev/ttyUSB0 (Linux) or COM3 (Windows)
+        - Baud: 115200 (standard for HLK-LD2451)
+    """
     global ser
     try:
         ser = serial.Serial(port_field.value, int(baud_field.value), timeout=1)
@@ -216,6 +281,12 @@ def connect_serial():
         log(f"❌ Connection failed: {e}")
 
 def disconnect_serial():
+    """
+    Close the serial connection to the radar module.
+    
+    Safely closes the connection and updates the log.
+    Always call this before changing connection parameters.
+    """
     global ser
     if ser and ser.is_open:
         ser.close()
@@ -628,12 +699,46 @@ def read_sensitivity_params():
 # === UI with Grid Layout ===
 ui.label('🧭 HLK-LD2451 Radar Configuration Tool').classes('text-xl font-bold mb-6')
 
-# Main Grid Layout: 2x2 structure
-# Top Row: Connection Controls | Configuration Display  
-# Bottom Row: Live Radar Data | Debug Log
+# ===================================================================
+# MAIN GUI LAYOUT: 2x2 RESPONSIVE GRID STRUCTURE
+# ===================================================================
+#
+# The interface is organized as a 2x2 grid for optimal space utilization:
+#
+# ┌─────────────────────┬─────────────────────┐
+# │  Connection &       │  Configuration      │
+# │  Controls           │  Status Display     │
+# │                     │                     │
+# │ • Serial setup      │ • Current settings  │
+# │ • Quick actions     │ • Parameter values  │
+# │ • Manual commands   │ • Status indicators │
+# └─────────────────────┼─────────────────────┤
+# │  Live Radar Data    │  Debug Log &        │
+# │                     │  Detection Tips     │
+# │                     │                     │
+# │ • Target detection  │ • Real-time logs    │
+# │ • Statistics        │ • Usage tips        │
+# │ • Data visualization│ • Error messages    │
+# └─────────────────────┴─────────────────────┘
+#
+# Benefits of this layout:
+# - Logical grouping of related functions
+# - Responsive design adapts to screen size  
+# - Maximum utilization of available space
+# - Clear visual separation between areas
+# ===================================================================
+
 with ui.grid(columns='1fr 1fr').classes('w-full gap-6'):
     
-    # Grid Cell 1: Connection & Control Panel
+    # ===============================================================
+    # GRID CELL 1: CONNECTION & CONTROL PANEL
+    # ===============================================================
+    # Contains all connection management and radar control functions:
+    # - Serial port configuration (device, baud rate)
+    # - Connection/disconnection controls  
+    # - Quick action buttons for common operations
+    # - Manual hex command input for advanced users
+    # ===============================================================
     with ui.card().classes('p-4'):
         ui.label('🔌 Connection & Controls').classes('text-lg font-bold mb-3')
         
@@ -728,7 +833,15 @@ with ui.grid(columns='1fr 1fr').classes('w-full gap-6'):
             cmd_field = ui.input('Command (Hex)', placeholder='FD FC FB FA 04 00 FE 01 00 00 04 03 02 01').classes('flex-1')
             ui.button('Send', on_click=lambda: send_command(cmd_field.value)).props('icon=send')
     
-    # Grid Cell 2: Configuration Status Display
+    # ===============================================================
+    # GRID CELL 2: CONFIGURATION STATUS DISPLAY  
+    # ===============================================================
+    # Shows current radar parameter settings and configuration state:
+    # - Detection range, speed, and sensitivity settings
+    # - Configuration timestamps and status indicators
+    # - Parameter validation and current values
+    # - Visual feedback on configuration success/failure
+    # ===============================================================
     with ui.card().classes('p-4'):
         ui.label('⚙️ Configuration Status').classes('text-lg font-bold mb-3')
         
@@ -742,7 +855,15 @@ with ui.grid(columns='1fr 1fr').classes('w-full gap-6'):
         status_display = ui.label(current_config["config_status"]).classes('text-sm text-center p-2 bg-blue-50 rounded')
         updated_display = ui.label(f'Last updated: {current_config["last_updated"]}').classes('text-xs text-gray-600 text-center mt-2')
     
-    # Grid Cell 3: Live Radar Data
+    # ===============================================================
+    # GRID CELL 3: LIVE RADAR DATA MONITORING
+    # ===============================================================  
+    # Real-time radar target detection and data visualization:
+    # - Live target count and frame statistics
+    # - Detailed target information (range, speed, angle)
+    # - Data reception statistics and performance metrics
+    # - Auto-refreshing display with scroll capability
+    # ===============================================================
     with ui.card().classes('p-4 bg-blue-50'):
         ui.label('🎯 Live Radar Targets').classes('text-lg font-bold text-blue-800 mb-3')
         
@@ -759,7 +880,15 @@ with ui.grid(columns='1fr 1fr').classes('w-full gap-6'):
             ui.button('📡 Start Live Data', on_click=lambda: start_radar_reader(), color='blue')
             ui.button('⏹️ Stop Live Data', on_click=lambda: stop_radar_reader(), color='orange')
     
-    # Grid Cell 4: Debug Log & Tips
+    # ===============================================================
+    # GRID CELL 4: DEBUG LOG & DETECTION TIPS
+    # ===============================================================
+    # Debug information and user guidance for radar operation:
+    # - Real-time debug messages and error logging  
+    # - Protocol communication traces and responses
+    # - Detection tips and usage recommendations
+    # - Terminal-style scrolling log with auto-scroll
+    # ===============================================================
     with ui.card().classes('p-4'):
         ui.label('📝 Live Debug Log').classes('text-lg font-bold mb-3')
         
@@ -1048,4 +1177,23 @@ with ui.tab_panels(tabs, value=basic_tab).classes('w-full'):
 # Auto-update live targets display
 ui.timer(0.5, update_live_targets_display)  # Update every 500ms
 
-ui.run(title='HLK-LD2451 Config Tool', reload=False)
+# ===================================================================
+# APPLICATION STARTUP
+# ===================================================================
+# Launch the NiceGUI web server with the radar configuration interface.
+# The application will be available at http://localhost:8080
+#
+# Configuration:
+# - title: Browser window/tab title
+# - reload: Disabled to prevent issues with serial connections
+#
+# To use the application:
+# 1. Connect HLK-LD2451 radar via USB-to-Serial adapter
+# 2. Run this script: python radar_config_gui.py  
+# 3. Open http://localhost:8080 in your web browser
+# 4. Configure serial port and connect to radar
+# 5. Use the interface to configure and monitor radar
+# ===================================================================
+
+if __name__ == "__main__":
+    ui.run(title='HLK-LD2451 Config Tool', reload=False)
